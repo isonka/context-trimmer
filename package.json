@@ -1,0 +1,46 @@
+{
+  "name": "context-trimmer",
+  "version": "0.1.0",
+  "description": "CLI and library for building LLM context bundles",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "context-trimmer": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "tiktoken": "^1.0.21"
+  },
+  "peerDependenciesMeta": {
+    "tiktoken": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "ignore": "^7.0.5",
+    "yargs": "^18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "@types/yargs": "^17.0.35",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.3"
+  }
+}
