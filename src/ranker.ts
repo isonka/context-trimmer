@@ -11,6 +11,7 @@ export interface RankerOptions {
   keywordWeight?: number;
   typeWeight?: number;
   fileTypePriority?: Record<string, number>;
+  querySynonyms?: Record<string, string[]>;
 }
 
 export interface RankedFile extends ScannedFile {
@@ -36,7 +37,7 @@ const execFileAsync = promisify(execFile);
  * Ranks scanned files by query relevance, recency, and extension priority.
  */
 export async function rankFiles(files: ScannedFile[], options: RankerOptions): Promise<RankedFile[]> {
-  const tokens = tokenizeQuery(options.query);
+  const tokens = expandQueryTokens(tokenizeQuery(options.query), options.querySynonyms);
   const keywordWeight = options.keywordWeight ?? 0.65;
   const recencyWeight = options.recencyWeight ?? 0.25;
   const typeWeight = options.typeWeight ?? 0.1;
@@ -81,6 +82,36 @@ export function tokenizeQuery(query: string): string[] {
 }
 
 /**
+ * Expands base query tokens with light stemming and optional synonym mapping.
+ */
+export function expandQueryTokens(
+  baseTokens: string[],
+  querySynonyms: Record<string, string[]> = {}
+): string[] {
+  const expanded = new Set<string>();
+  const mergedSynonyms = {
+    ...DEFAULT_SYNONYMS,
+    ...querySynonyms
+  };
+
+  for (const token of baseTokens) {
+    expanded.add(token);
+    for (const variant of simpleTokenVariants(token)) {
+      expanded.add(variant);
+    }
+    const synonyms = mergedSynonyms[token] ?? [];
+    for (const synonym of synonyms) {
+      const normalized = synonym.trim().toLowerCase();
+      if (normalized.length > 1) {
+        expanded.add(normalized);
+      }
+    }
+  }
+
+  return Array.from(expanded);
+}
+
+/**
  * Computes a simple TF-IDF style score for a file.
  */
 export function computeKeywordScore(
@@ -111,7 +142,7 @@ function countTokenOccurrences(text: string, token: string): number {
     return 0;
   }
   const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`\\b${escaped}\\b`, "g");
+  const regex = new RegExp(`\\b${escaped}\\b`, "gi");
   const matches = text.match(regex);
   return matches?.length ?? 0;
 }
@@ -136,17 +167,14 @@ function buildInverseDocumentFrequency(files: ScannedFile[], queryTokens: string
 
 async function readModifiedTimestamps(rootDir: string, files: ScannedFile[]): Promise<Map<string, number>> {
   const output = new Map<string, number>();
+  const gitTimestamps = await readGitTimestampsBatch(rootDir);
   await Promise.all(
     files.map(async (file) => {
       const fullPath = path.resolve(rootDir, file.relativePath);
-      try {
-        const gitTimestamp = await readGitTimestamp(rootDir, file.relativePath);
-        if (gitTimestamp > 0) {
-          output.set(file.relativePath, gitTimestamp);
-          return;
-        }
-      } catch {
-        // Fall through to filesystem metadata.
+      const gitTimestamp = gitTimestamps.get(file.relativePath) ?? 0;
+      if (gitTimestamp > 0) {
+        output.set(file.relativePath, gitTimestamp);
+        return;
       }
 
       try {
@@ -160,21 +188,34 @@ async function readModifiedTimestamps(rootDir: string, files: ScannedFile[]): Pr
   return output;
 }
 
-async function readGitTimestamp(rootDir: string, relativePath: string): Promise<number> {
+async function readGitTimestampsBatch(rootDir: string): Promise<Map<string, number>> {
+  const output = new Map<string, number>();
   try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["log", "-1", "--format=%ct", "--", relativePath],
-      { cwd: rootDir }
-    );
-    const seconds = Number.parseInt(stdout.trim(), 10);
-    if (!Number.isFinite(seconds) || Number.isNaN(seconds)) {
-      return 0;
+    const { stdout } = await execFileAsync("git", ["log", "--name-only", "--format=%ct"], { cwd: rootDir });
+    const lines = stdout.split(/\r?\n/);
+    let currentTimestamp = 0;
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) {
+        continue;
+      }
+      if (/^\d+$/.test(line)) {
+        currentTimestamp = Number.parseInt(line, 10) * 1000;
+        continue;
+      }
+      if (currentTimestamp <= 0) {
+        continue;
+      }
+      const normalizedPath = line.split(path.sep).join("/");
+      if (!output.has(normalizedPath)) {
+        output.set(normalizedPath, currentTimestamp);
+      }
     }
-    return seconds * 1000;
   } catch {
-    return 0;
+    return output;
   }
+  return output;
 }
 
 function buildRange(values: number[]): { min: number; max: number } {
@@ -198,4 +239,29 @@ function normalizePriorityMap(priority: Record<string, number>): Record<string, 
     normalized[key] = value;
   }
   return normalized;
+}
+
+const DEFAULT_SYNONYMS: Record<string, string[]> = {
+  auth: ["authentication", "authorize", "authorization"],
+  login: ["signin", "sign-in"],
+  cache: ["caching", "memoize", "memoization"],
+  db: ["database"],
+  bug: ["issue", "defect", "fix"]
+};
+
+function simpleTokenVariants(token: string): string[] {
+  const variants = new Set<string>();
+  if (token.endsWith("ing") && token.length > 4) {
+    variants.add(token.slice(0, -3));
+  }
+  if (token.endsWith("ed") && token.length > 3) {
+    variants.add(token.slice(0, -2));
+  }
+  if (token.endsWith("s") && token.length > 3) {
+    variants.add(token.slice(0, -1));
+  }
+  if (token.endsWith("ation") && token.length > 6) {
+    variants.add(token.slice(0, -5));
+  }
+  return Array.from(variants).filter((value) => value.length > 1);
 }

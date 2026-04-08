@@ -50,4 +50,26 @@ describe("bundler", () => {
     expect(markdown).toContain("# Context Bundle");
     expect(markdown).toContain("## File: `a.ts`");
   });
+
+  it("chunks large files so partial content can fit", () => {
+    const tokenizer = createChar4Tokenizer();
+    const large: RankedFile[] = [
+      {
+        ...rankedFixtures[0],
+        relativePath: "large.ts",
+        content: "x".repeat(80),
+        score: 0.95
+      }
+    ];
+
+    const bundle = buildBundle(large, {
+      tokenBudget: 10,
+      maxChunkTokens: 6,
+      tokenizer
+    });
+
+    expect(bundle.items.length).toBeGreaterThan(0);
+    expect(bundle.items[0]?.path).toBe("large.ts");
+    expect(bundle.items[0]?.chunkCount).toBeGreaterThan(1);
+  });
 });

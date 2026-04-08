@@ -7,6 +7,7 @@ export interface TokenizerOptions {
 
 export interface Tokenizer {
   estimateTokens(text: string): number;
+  dispose?(): void;
 }
 
 /**
@@ -50,6 +51,11 @@ async function createTiktokenTokenizer(model?: string): Promise<Tokenizer> {
       estimateTokens(text: string): number {
         const encoded = encoding.encode(text);
         return encoded.length;
+      },
+      dispose(): void {
+        if ("free" in encoding && typeof encoding.free === "function") {
+          encoding.free();
+        }
       }
     };
   } catch (error) {

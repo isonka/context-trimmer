@@ -20,6 +20,7 @@ interface CliArgs {
 }
 
 async function run(): Promise<void> {
+  let tokenizer: Awaited<ReturnType<typeof createTokenizer>> | undefined;
   try {
     const argv = await parseArgs();
     const rootDir = path.resolve(argv.dir);
@@ -34,7 +35,7 @@ async function run(): Promise<void> {
       rootDir
     });
 
-    const tokenizer = await createTokenizer({
+    tokenizer = await createTokenizer({
       mode: argv.tokenizer,
       model: argv.model
     });
@@ -58,6 +59,8 @@ async function run(): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`context-trimmer: ${message}\n`);
     process.exitCode = 1;
+  } finally {
+    tokenizer?.dispose?.();
   }
 }
 

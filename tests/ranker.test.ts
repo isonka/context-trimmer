@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { rankFiles, tokenizeQuery } from "../src/ranker.js";
+import { expandQueryTokens, rankFiles, tokenizeQuery } from "../src/ranker.js";
 import { type ScannedFile } from "../src/scanner.js";
 
 async function withTempDir(testFn: (dir: string) => Promise<void>): Promise<void> {
@@ -46,5 +46,11 @@ describe("ranker", () => {
       expect(ranked[0].relativePath).toBe("a.ts");
       expect(ranked[0].score).toBeGreaterThan(ranked[1].score);
     });
+  });
+
+  it("expands query tokens with synonyms and variants", () => {
+    const expanded = expandQueryTokens(["auth"]);
+    expect(expanded).toContain("authentication");
+    expect(expanded).toContain("authorization");
   });
 });
