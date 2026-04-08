@@ -6,13 +6,15 @@ export interface ScannerOptions {
   rootDir: string;
   extensions?: string[];
   includeHidden?: boolean;
+  includeContent?: boolean;
 }
 
 export interface ScannedFile {
   absolutePath: string;
   relativePath: string;
   extension: string;
-  content: string;
+  content?: string;
+  sizeBytes: number;
 }
 
 const DEFAULT_EXTENSIONS = [
@@ -39,10 +41,11 @@ export async function scanFiles(options: ScannerOptions): Promise<ScannedFile[]>
   const rootDir = path.resolve(options.rootDir);
   const extensions = normalizeExtensions(options.extensions ?? DEFAULT_EXTENSIONS);
   const includeHidden = options.includeHidden ?? false;
+  const includeContent = options.includeContent ?? true;
 
   const ig = await createIgnoreMatcher(rootDir, includeHidden);
   const files: ScannedFile[] = [];
-  await walkDirectory(rootDir, rootDir, ig, extensions, files);
+  await walkDirectory(rootDir, rootDir, ig, extensions, includeContent, files);
   return files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
@@ -62,6 +65,7 @@ async function walkDirectory(
   currentDir: string,
   ig: Ignore,
   extensions: Set<string>,
+  includeContent: boolean,
   files: ScannedFile[]
 ): Promise<void> {
   const entries = await fs.readdir(currentDir, { withFileTypes: true });
@@ -75,7 +79,7 @@ async function walkDirectory(
     }
 
     if (entry.isDirectory()) {
-      await walkDirectory(rootDir, absolutePath, ig, extensions, files);
+      await walkDirectory(rootDir, absolutePath, ig, extensions, includeContent, files);
       continue;
     }
 
@@ -88,12 +92,14 @@ async function walkDirectory(
       continue;
     }
 
-    const content = await fs.readFile(absolutePath, "utf8");
+    const stat = await fs.stat(absolutePath);
+    const content = includeContent ? await fs.readFile(absolutePath, "utf8") : undefined;
     files.push({
       absolutePath,
       relativePath,
       extension: ext,
-      content
+      content,
+      sizeBytes: stat.size
     });
   }
 }

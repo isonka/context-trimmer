@@ -36,6 +36,21 @@ describe("scanner", () => {
       expect(paths).toContain("src/keep.ts");
       expect(paths).not.toContain("src/drop.json");
       expect(paths).not.toContain("src/ignored.ts");
+      expect(files[0]?.sizeBytes).toBeGreaterThan(0);
+    });
+  });
+
+  it("supports metadata-only scanning mode", async () => {
+    await withTempDir(async (dir) => {
+      await fs.mkdir(path.join(dir, "src"), { recursive: true });
+      await fs.writeFile(path.join(dir, "src", "keep.ts"), "export const a = 1;", "utf8");
+      const files = await scanFiles({
+        rootDir: dir,
+        extensions: [".ts"],
+        includeContent: false
+      });
+      expect(files).toHaveLength(1);
+      expect(files[0]?.content).toBeUndefined();
     });
   });
 });

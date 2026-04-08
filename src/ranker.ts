@@ -21,6 +21,11 @@ export interface RankedFile extends ScannedFile {
   typeScore: number;
   lastModifiedEpochMs: number;
 }
+interface FileKeywordStats {
+  relativePath: string;
+  matchesByToken: Map<string, number>;
+  contentTokenCount: number;
+}
 
 const DEFAULT_FILE_TYPE_PRIORITY: Record<string, number> = {
   ".ts": 1,
@@ -46,12 +51,14 @@ export async function rankFiles(files: ScannedFile[], options: RankerOptions): P
     ...normalizePriorityMap(options.fileTypePriority ?? {})
   };
 
-  const idf = buildInverseDocumentFrequency(files, tokens);
+  const keywordStats = await buildKeywordStats(files, tokens);
+  const idf = buildInverseDocumentFrequency(keywordStats, tokens);
   const timestamps = await readModifiedTimestamps(options.rootDir, files);
   const recencyRange = buildRange(Array.from(timestamps.values()));
 
   const ranked = files.map((file) => {
-    const keywordScore = computeKeywordScore(file.content, tokens, idf);
+    const stats = keywordStats.get(file.relativePath);
+    const keywordScore = computeKeywordScoreFromStats(stats, tokens, idf);
     const lastModifiedEpochMs = timestamps.get(file.relativePath) ?? 0;
     const recencyScore = normalizeFromRange(lastModifiedEpochMs, recencyRange.min, recencyRange.max);
     const typeScore = typePriority[file.extension] ?? 0;
@@ -137,6 +144,23 @@ export function computeKeywordScore(
   return total;
 }
 
+function computeKeywordScoreFromStats(
+  stats: FileKeywordStats | undefined,
+  queryTokens: string[],
+  inverseDocumentFrequency: Map<string, number>
+): number {
+  if (!stats || queryTokens.length === 0) {
+    return 0;
+  }
+  let total = 0;
+  for (const token of queryTokens) {
+    const matches = stats.matchesByToken.get(token) ?? 0;
+    const tf = matches / Math.max(1, stats.contentTokenCount);
+    total += tf * (inverseDocumentFrequency.get(token) ?? 0);
+  }
+  return total;
+}
+
 function countTokenOccurrences(text: string, token: string): number {
   if (!token) {
     return 0;
@@ -147,20 +171,48 @@ function countTokenOccurrences(text: string, token: string): number {
   return matches?.length ?? 0;
 }
 
-function buildInverseDocumentFrequency(files: ScannedFile[], queryTokens: string[]): Map<string, number> {
-  const totalDocs = Math.max(1, files.length);
+function buildInverseDocumentFrequency(
+  statsByPath: Map<string, FileKeywordStats>,
+  queryTokens: string[]
+): Map<string, number> {
+  const totalDocs = Math.max(1, statsByPath.size);
   const result = new Map<string, number>();
 
   for (const token of queryTokens) {
     let docsContainingToken = 0;
-    for (const file of files) {
-      if (countTokenOccurrences(file.content.toLowerCase(), token) > 0) {
+    for (const stats of statsByPath.values()) {
+      if ((stats.matchesByToken.get(token) ?? 0) > 0) {
         docsContainingToken += 1;
       }
     }
     const idf = Math.log((1 + totalDocs) / (1 + docsContainingToken)) + 1;
     result.set(token, idf);
   }
+
+  return result;
+}
+async function buildKeywordStats(
+  files: ScannedFile[],
+  tokens: string[]
+): Promise<Map<string, FileKeywordStats>> {
+  const result = new Map<string, FileKeywordStats>();
+
+  await Promise.all(
+    files.map(async (file) => {
+      const content = file.content ?? (await fs.readFile(file.absolutePath, "utf8"));
+      const lowered = content.toLowerCase();
+      const contentTokenCount = Math.max(1, lowered.split(/\s+/).length);
+      const matchesByToken = new Map<string, number>();
+      for (const token of tokens) {
+        matchesByToken.set(token, countTokenOccurrences(lowered, token));
+      }
+      result.set(file.relativePath, {
+        relativePath: file.relativePath,
+        matchesByToken,
+        contentTokenCount
+      });
+    })
+  );
 
   return result;
 }

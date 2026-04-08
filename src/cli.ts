@@ -27,7 +27,8 @@ async function run(): Promise<void> {
 
     const scanned = await scanFiles({
       rootDir,
-      extensions: argv.extensions
+      extensions: argv.extensions,
+      includeContent: false
     });
 
     const ranked = await rankFiles(scanned, {
@@ -40,7 +41,7 @@ async function run(): Promise<void> {
       model: argv.model
     });
 
-    const bundle = buildBundle(ranked, {
+    const bundle = await buildBundle(ranked, {
       tokenBudget: argv.budget,
       tokenizer
     });

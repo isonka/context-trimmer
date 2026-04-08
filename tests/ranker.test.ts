@@ -26,13 +26,15 @@ describe("ranker", () => {
           absolutePath: path.join(dir, "a.ts"),
           relativePath: "a.ts",
           extension: ".ts",
-          content: "auth middleware auth middleware auth"
+          content: "auth middleware auth middleware auth",
+          sizeBytes: 35
         },
         {
           absolutePath: path.join(dir, "b.json"),
           relativePath: "b.json",
           extension: ".json",
-          content: "{\"note\":\"nothing here\"}"
+          content: "{\"note\":\"nothing here\"}",
+          sizeBytes: 22
         }
       ];
       await fs.writeFile(path.join(dir, "a.ts"), files[0].content, "utf8");
@@ -52,5 +54,28 @@ describe("ranker", () => {
     const expanded = expandQueryTokens(["auth"]);
     expect(expanded).toContain("authentication");
     expect(expanded).toContain("authorization");
+  });
+
+  it("can rank metadata-only scanned files", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "a.ts"), "authentication middleware", "utf8");
+      await fs.writeFile(path.join(dir, "b.ts"), "unrelated", "utf8");
+      const files: ScannedFile[] = [
+        {
+          absolutePath: path.join(dir, "a.ts"),
+          relativePath: "a.ts",
+          extension: ".ts",
+          sizeBytes: 24
+        },
+        {
+          absolutePath: path.join(dir, "b.ts"),
+          relativePath: "b.ts",
+          extension: ".ts",
+          sizeBytes: 9
+        }
+      ];
+      const ranked = await rankFiles(files, { query: "auth", rootDir: dir });
+      expect(ranked[0]?.relativePath).toBe("a.ts");
+    });
   });
 });

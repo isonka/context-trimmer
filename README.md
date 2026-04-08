@@ -1,8 +1,8 @@
 # context-trimmer
 
-![npm](https://img.shields.io/npm/v/context-trimmer)
-![license](https://img.shields.io/github/license/yourname/context-trimmer)
-![build](https://img.shields.io/github/actions/workflow/status/yourname/context-trimmer/ci.yml)
+[![npm](https://img.shields.io/npm/v/context-trimmer)](https://www.npmjs.com/package/context-trimmer)
+[![node](https://img.shields.io/badge/node-%3E%3D18-339933)](https://nodejs.org/)
+[![typescript](https://img.shields.io/badge/TypeScript-strict-3178C6)](https://www.typescriptlang.org/)
 
 A TypeScript CLI + library for building LLM-ready context bundles from a local repository.
 
@@ -34,6 +34,12 @@ Each file receives a composite relevance score based on three signals:
 
 Files are then selected greedily by score until the token budget is exhausted.
 
+### Performance notes
+
+- The CLI uses metadata-first scanning (`includeContent: false`) to reduce peak memory during directory traversal.
+- Content is loaded lazily during ranking/bundling only when needed.
+- Recency scoring uses batched git history parsing with filesystem timestamp fallback.
+
 ## Config options
 
 | Option | Type | Default | Description |
@@ -58,7 +64,8 @@ Files are then selected greedily by score until the token budget is exhausted.
 
 - Files included: 3
 - Tokens used: 18,542
-- Files skipped (budget): 9
+- Files skipped due to budget: 9
+- Files partially included: 1
 
 ---
 
@@ -104,6 +111,8 @@ import {
 } from "context-trimmer";
 
 const files = await scanFiles({ rootDir: process.cwd() });
+// For large repos, prefer metadata-first scanning:
+// const files = await scanFiles({ rootDir: process.cwd(), includeContent: false });
 
 const ranked = await rankFiles(files, {
   query: "add auth middleware",
@@ -112,13 +121,23 @@ const ranked = await rankFiles(files, {
 
 const tokenizer = await createTokenizer({ mode: "char4" });
 
-const bundle = buildBundle(ranked, {
+const bundle = await buildBundle(ranked, {
   tokenBudget: 32000,
   tokenizer,
 });
 
 console.log(formatBundleMarkdown(bundle, process.cwd()));
 ```
+
+## Chunking behavior
+
+When a file is too large for remaining budget, `buildBundle()` can include it in chunks (`maxChunkTokens`), using syntax-aware boundary heuristics:
+
+- prefers breaks at blank lines
+- prefers breaks near closing braces (`}` / `};`)
+- prefers boundaries before declarations (`export`, `class`, `function`, `interface`, `type`, etc.)
+
+This improves readability vs pure fixed-size splitting while still honoring token limits.
 
 ## Development
 
